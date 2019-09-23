@@ -1,0 +1,173 @@
+---
+title: "Task1-Report"
+author: "Chiara Laudani"
+date: "9/22/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(httr) #httr to retrieve data from URL
+library(rjstat) #rjstat for handling data in JSON format
+library(tidyverse)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+```
+
+We first collect the data on the SSB's website and store it as a JSON. This will avoid the problems that one would have with this data set if they were to use the CSV format instead.
+```{r}
+url_95274 <- "http://data.ssb.no/api/v0/dataset/95274.json?lang=no"
+url_95276 <- "http://data.ssb.no/api/v0/dataset/95276.json?lang=no"
+json_data_95274 <- GET(url_95274)
+json_data_95276 <- GET(url_95276)
+```
+
+Then, the content is retrieved as text, and processed by the 'fromJSONstat' function which takes a JSON file and returns a list of data frames, so we use the double square brackets to retrieve only the data and not the entire data-frame.
+```{r}
+by_counties <- (fromJSONstat(content(json_data_95274, "text")))[[1]]
+whole_country <- (fromJSONstat(content(json_data_95276, "text")))[[1]]
+```
+
+Since the data is in Norwegian, we change the names of the columns to their English equivalent.
+```{r}
+names(by_counties) <- c("region", "date", "variable", "value")
+names(whole_country) <- c("region", "date", "variable", "value")
+```
+
+The given date format (of type character) is not a default one, so to change it to the 'Date' format we use the as.Date() function to make the date look like '%Y-%m-%d' and assume the day to always be the first of the month.
+```{r}
+by_counties$date <- as.Date(paste(by_counties$date, "01", sep = "-"), "%YM%m-%d")
+whole_country$date <- as.Date(paste(whole_country$date, "01", sep = "-"), "%YM%m-%d")
+```
+
+The recode() function, from the dplyr package, is used to change some of the Norwegian labels into English.
+```{r}
+by_counties$variable <- recode(by_counties$variable, 
+       "Kapasitetsutnytting av senger (prosent)"="Beds percentage capacity utilization",
+       "Kapasitetsutnytting av rom (prosent)"="Rooms percentage capacity utilization",
+       "Pris per rom (kr)"="Price per room")
+
+whole_country$variable <- recode(whole_country$variable, 
+       "Kapasitetsutnytting av senger (prosent)"="Beds percentage capacity utilization",
+       "Kapasitetsutnytting av rom (prosent)"="Rooms percentage capacity utilization",
+       "Pris per rom (kr)"="Price per room")
+```
+
+The two dataframes are combined with an inner-join, with the columns in common being 'date' and 'variable'. The rows with null prices are then removed.
+
+```{r}
+combined <- inner_join(by_counties, whole_country, c("date", "variable"))
+
+no_null_prices  <-  combined %>%
+  filter(!value.x==0) 
+```
+
+The next transformation on the data takes the combined table without null prices and filters out the rows which are not of the "Price per room" variable, groups the counties by month and calculates the average for each, and then the average per month is done for the 'entire country' data.
+```{r}
+# Average price per county
+mean_county_month <- no_null_prices %>%
+  filter(variable == "Price per room") %>%
+  mutate(by_month = month(date)) %>%
+  group_by(region.x, by_month) %>%
+  summarise(average_county = mean(value.x))
+
+mean_national_month <- no_null_prices %>%
+  filter(variable == "Price per room") %>%
+  mutate(by_month = month(date)) %>%
+  group_by(by_month) %>%
+  summarise(average_national=mean(value.y))
+```
+
+A new column 'difference' is then made in which the difference of the two means is calculated.
+```{r}
+combine_avg_month <- inner_join(mean_county_month, mean_national_month, c("by_month")) %>% 
+  mutate(difference=(average_county-average_national))
+
+q1 <- combine_avg_month[[which.max(combine_avg_month$difference),1]]
+q2 <- combine_avg_month[[which.min(combine_avg_month$difference),1]]
+```
+
+The county with the highest positive difference in price per month (on average) was `r q1`, while the highest negative was `r q2`.
+
+The same process as before is applied again to the data without the null prices' values, but this time the mean is not per month but rather per year.
+```{r}
+mean_county_year <- no_null_prices %>%
+  filter(variable == "Price per room") %>%
+  mutate(by_year = year(date)) %>%
+  group_by(region.x, by_year) %>%
+  summarise(average_county = mean(value.x))
+
+mean_national_year <- no_null_prices %>%
+  filter(variable == "Price per room") %>%
+  mutate(by_year = year(date)) %>%
+  group_by(by_year) %>%
+  summarise(average_national=mean(value.y))
+
+combine_avg_year <- inner_join(mean_county_year, mean_national_year, c("by_year")) %>% 
+  mutate(difference=(average_county-average_national))
+
+q3 <- combine_avg_year[[which.max(combine_avg_year$difference),1]]
+y1 <- combine_avg_year[[which.max(combine_avg_year$difference),2]]
+
+q4 <- combine_avg_year[[which.min(combine_avg_year$difference),1]]
+y2 <- combine_avg_year[[which.min(combine_avg_year$difference),2]]
+```
+
+The county with the highest positive difference in price per year (on average) was `r q3` in the year `r y1`, while the highest negative was `r q4` in `r y2`.
+
+The next task is to plot the monthly price difference for Troms county from 1999 until today. To do this, we first take the 'no_null_prices' data again and this time keep the date as is, but only take the range of years between 1999 and the current date.
+```{r}
+mean_county_date <- no_null_prices %>%
+  filter(variable == "Price per room") %>%
+  group_by(region.x, date) %>%
+  summarise(average_county = mean(value.x))
+
+mean_national_date <- no_null_prices %>%
+  filter(variable == "Price per room") %>%
+  group_by(date) %>% 
+  summarise(average_national=mean(value.y))
+
+combine_avg_date <- inner_join(mean_county_date, mean_national_date, c("date")) %>% 
+  mutate(difference=(average_county-average_national))
+
+to_plot <- combine_avg_date %>%
+  filter(region.x == "Troms - Romsa") %>% 
+  subset(date>= "1999-01-01" & date <= Sys.Date())
+```
+
+We then plot the data: 
+```{r include=TRUE} 
+ggplot(to_plot, aes(x=month(date), y=difference)) + geom_bar(stat = "identity") +
+  xlab("Month") + 
+  ylab("Monthly Price Difference") + 
+  ggtitle("Monthly price difference for Troms county from 1999 until today")
+```
+
+
+Finally we want to know if, per county, there is any relationship (correlation) between room capacity and price since January 2010. For this, we take the initial data for the counties, make two new data-frames where we take the range of dates between January 2010 and the current date, then only the rows with the room prices in one data set and only the room capacities in the other, and for each create a new column with those values and remove the 'variable' column.
+After, the data-frames are inner-joined by common columns 'date' and 'region'.
+```{r}
+to_cor1 <- by_counties %>% 
+  filter(variable == "Price per room") %>%
+  subset(date>= "2010-01-01" & date <= Sys.Date()) %>% 
+  rename(price = value) %>% 
+  select(., -c(variable))
+
+to_cor2 <- by_counties %>% 
+  filter(variable == "Rooms percentage capacity utilization") %>%
+  subset(date>= "2010-01-01" & date <= Sys.Date()) %>% 
+  rename(rooms_capacity = value) %>% 
+  select(., -c(variable))
+
+to_cor <- inner_join(to_cor1, to_cor2, c("date", "region"))
+```
+
+The cor.test() function is then used to test for correlation between the paired samples. The result is 
+
+```{r}
+cor.test(to_cor$price, to_cor$rooms_capacity)
+```
+
+where the correlation coefficient and the significance level(or p-value) of the correlation are both returned.
+
