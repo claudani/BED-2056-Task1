@@ -1,7 +1,7 @@
 ---
-title: "Task1-Report"
+title: "Task1 - Report"
 author: "Chiara Laudani"
-date: "9/22/2019"
+date: "23-09-2019"
 output: html_document
 ---
 
@@ -15,15 +15,15 @@ library(lubridate)
 library(ggplot2)
 ```
 
-We first collect the data on the SSB's website and store it as a JSON. This will avoid the problems that one would have with this data set if they were to use the CSV format instead.
-```{r}
+We first collect the data on the SSB's website and store it as a JSON. This will avoid obstacles that might occur by using CSV format instead.
+```{r include=TRUE}
 url_95274 <- "http://data.ssb.no/api/v0/dataset/95274.json?lang=no"
 url_95276 <- "http://data.ssb.no/api/v0/dataset/95276.json?lang=no"
 json_data_95274 <- GET(url_95274)
 json_data_95276 <- GET(url_95276)
 ```
 
-Then, the content is retrieved as text, and processed by the 'fromJSONstat' function which takes a JSON file and returns a list of data frames, so we use the double square brackets to retrieve only the data and not the entire data-frame.
+The content is then retrieved as text, and processed by the 'fromJSONstat' function which takes a JSON file and returns a list of data frames, so we use the double square brackets to retrieve only the data and not the entire data-frame.
 ```{r}
 by_counties <- (fromJSONstat(content(json_data_95274, "text")))[[1]]
 whole_country <- (fromJSONstat(content(json_data_95276, "text")))[[1]]
@@ -137,13 +137,12 @@ to_plot <- combine_avg_date %>%
 ```
 
 We then plot the data: 
+
 ```{r include=TRUE} 
-ggplot(to_plot, aes(x=month(date), y=difference)) + geom_bar(stat = "identity") +
-  xlab("Month") + 
+ggplot(to_plot, aes(x=date, y=difference)) + geom_point() + xlab("Date") + 
   ylab("Monthly Price Difference") + 
   ggtitle("Monthly price difference for Troms county from 1999 until today")
 ```
-
 
 Finally we want to know if, per county, there is any relationship (correlation) between room capacity and price since January 2010. For this, we take the initial data for the counties, make two new data-frames where we take the range of dates between January 2010 and the current date, then only the rows with the room prices in one data set and only the room capacities in the other, and for each create a new column with those values and remove the 'variable' column.
 After, the data-frames are inner-joined by common columns 'date' and 'region'.
